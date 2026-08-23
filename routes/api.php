@@ -6,6 +6,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\ProductVariantController;
 use App\Http\Controllers\CartController;
+use App\Http\Controllers\OrderController;
 use Illuminate\Support\Facades\Route;
 // routes public
 Route::post('/register', [AuthController::class, 'register']);
@@ -25,6 +26,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/cart/items/{itemId}', [CartController::class, 'update']);
     Route::delete('/cart/items/{itemId}', [CartController::class, 'destroy']);
     Route::delete('/cart', [CartController::class, 'clear']);
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{order}', [OrderController::class, 'show']);
+    Route::post('/orders', [OrderController::class, 'store']);
+    Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
 });
 
 //route admi
