@@ -38,4 +38,15 @@ class Product extends Model
     {
         return $this->hasMany(ProductVariant::class);
     }
+
+    public function reviews()
+    {
+        return $this->hasMany(Review::class);
+    }
+
+    // Pratique pour afficher la note moyenne facilement
+    public function averageRating()
+    {
+        return $this->reviews()->avg('rating');
+    }
 }

@@ -9,10 +9,12 @@ class Order extends Model
     protected $fillable = [
         'user_id',
         'vendor_id',
+        'coupon_id',
         'status',
         'payment_method',
         'payment_status',
         'total',
+        'discount',
         'shipping_address',
         'shipping_city',
         'shipping_phone',
@@ -32,5 +34,10 @@ class Order extends Model
     public function items()
     {
         return $this->hasMany(OrderItem::class);
+    }
+
+    public function coupon()
+    {
+        return $this->belongsTo(Coupon::class);
     }
 }

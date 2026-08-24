@@ -35,6 +35,7 @@ class OrderController extends Controller
             'shipping_city' => 'required|string|max:255',
             'shipping_phone' => 'required|string|max:20',
             'notes' => 'nullable|string',
+            'coupon_code' => 'nullable|string',
         ]);
 
         $cart = Cart::where('user_id', $request->user()->id)->with('items.product', 'items.variant')->first();
@@ -43,7 +44,6 @@ class OrderController extends Controller
             return response()->json(['message' => 'Votre panier est vide.'], 422);
         }
 
-        // Vérifie que tous les produits appartiennent au même vendeur (règle qu'on a choisie)
         $vendorIds = $cart->items->pluck('product.user_id')->unique();
         if ($vendorIds->count() > 1) {
             return response()->json([
@@ -51,19 +51,44 @@ class OrderController extends Controller
             ], 422);
         }
 
-        $order = DB::transaction(function () use ($request, $validated, $cart, $vendorIds) {
-            $total = $cart->items->sum(function ($item) {
-                $price = $item->product->price + ($item->variant->price_adjustment ?? 0);
-                return $price * $item->quantity;
-            });
+        // Calcul du total brut (avant réduction)
+        $subtotal = $cart->items->sum(function ($item) {
+            $price = $item->product->price + ($item->variant->price_adjustment ?? 0);
+            return $price * $item->quantity;
+        });
 
+        // Vérification du coupon si fourni
+        $coupon = null;
+        $discount = 0;
+
+        if (!empty($validated['coupon_code'])) {
+            $coupon = \App\Models\Coupon::where('code', $validated['coupon_code'])->first();
+
+            if (!$coupon || !$coupon->isValid()) {
+                return response()->json(['message' => 'Coupon invalide ou expiré.'], 422);
+            }
+
+            if ($coupon->min_purchase && $subtotal < $coupon->min_purchase) {
+                return response()->json([
+                    'message' => "Ce coupon nécessite un achat minimum de {$coupon->min_purchase} €.",
+                ], 422);
+            }
+
+            $discount = $coupon->calculateDiscount($subtotal);
+        }
+
+        $total = round($subtotal - $discount, 2);
+
+        $order = DB::transaction(function () use ($request, $validated, $cart, $vendorIds, $coupon, $discount, $total) {
             $order = Order::create([
                 'user_id' => $request->user()->id,
                 'vendor_id' => $vendorIds->first(),
+                'coupon_id' => $coupon?->id,
                 'status' => 'en_attente',
                 'payment_method' => $validated['payment_method'],
                 'payment_status' => 'non_paye',
                 'total' => $total,
+                'discount' => $discount,
                 'shipping_address' => $validated['shipping_address'],
                 'shipping_city' => $validated['shipping_city'],
                 'shipping_phone' => $validated['shipping_phone'],
@@ -81,7 +106,6 @@ class OrderController extends Controller
                     'quantity' => $item->quantity,
                 ]);
 
-                // Décrémente le stock
                 if ($item->variant) {
                     $item->variant->decrement('stock', $item->quantity);
                 } else {
@@ -89,17 +113,19 @@ class OrderController extends Controller
                 }
             }
 
-            // Vide le panier après la commande
+            if ($coupon) {
+                $coupon->increment('used_count');
+            }
+
             $cart->items()->delete();
 
             return $order;
         });
 
-        $order->load('items', 'vendor');
+        $order->load('items', 'vendor', 'coupon');
 
         $response = ['order' => $order];
 
-        // Si commande via WhatsApp, on génère le lien
         if ($order->payment_method === 'whatsapp' && $order->vendor && $order->vendor->phone) {
             $response['whatsapp_link'] = $this->generateWhatsappLink($order);
         }

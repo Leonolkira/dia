@@ -51,9 +51,9 @@ class ProductController extends Controller
     }
 
     public function show(Product $product)
-    {
-        return $product->load('category', 'vendor');
-    }
+{
+    return $product->load('category', 'vendor', 'images', 'variants', 'reviews.user');
+}
 
     public function update(Request $request, Product $product)
     {
