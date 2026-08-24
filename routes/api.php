@@ -18,8 +18,10 @@ use Illuminate\Support\Facades\Route;
 | Authentification
 |--------------------------------------------------------------------------
 */
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [AuthController::class, 'login']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -117,9 +119,12 @@ Route::middleware('auth:sanctum')->group(function () {
 | Coupons
 |--------------------------------------------------------------------------
 */
-Route::post('/coupons/check', [CouponController::class, 'check']);
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post('/coupons/check', [CouponController::class, 'check']);
+});
 
-Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+
+Route::middleware(['throttle:10,1', 'auth:sanctum', 'role:admin'])->group(function () {
     Route::get('/coupons', [CouponController::class, 'index']);
     Route::post('/coupons', [CouponController::class, 'store']);
     Route::put('/coupons/{coupon}', [CouponController::class, 'update']);

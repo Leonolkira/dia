@@ -5,25 +5,34 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\ProductImage;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ProductImageController extends Controller
 {
     public function store(Request $request, Product $product)
     {
         $validated = $request->validate([
-            'url' => 'required|string|url',
+            'image' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120', // 5 Mo max
             'order' => 'nullable|integer',
         ]);
 
-        $validated['product_id'] = $product->id;
+        $path = $request->file('image')->store('products', 'public');
 
-        $image = ProductImage::create($validated);
+        $image = ProductImage::create([
+            'product_id' => $product->id,
+            'url' => asset('storage/' . $path),
+            'order' => $validated['order'] ?? 0,
+        ]);
 
         return response()->json($image, 201);
     }
 
     public function destroy(ProductImage $productImage)
     {
+        // Récupère le chemin relatif à partir de l'URL stockée
+        $path = str_replace(asset('storage/'), '', $productImage->url);
+        Storage::disk('public')->delete($path);
+
         $productImage->delete();
 
         return response()->json(['message' => 'Image supprimée']);
