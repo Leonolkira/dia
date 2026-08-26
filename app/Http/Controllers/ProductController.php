@@ -9,22 +9,29 @@ class ProductController extends Controller
 {
     public function index(Request $request)
     {
+        $validated = $request->validate([
+            'category_id' => 'nullable|integer|exists:categories,id',
+            'search' => 'nullable|string|max:100',
+            'min_price' => 'nullable|numeric|min:0',
+            'max_price' => 'nullable|numeric|min:0',
+        ]);
+
         $query = Product::with('category', 'vendor')->where('is_active', true);
 
-        if ($request->has('category_id')) {
-            $query->where('category_id', $request->category_id);
+        if (!empty($validated['category_id'])) {
+            $query->where('category_id', $validated['category_id']);
         }
 
-        if ($request->has('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%');
+        if (!empty($validated['search'])) {
+            $query->where('name', 'like', '%' . $validated['search'] . '%');
         }
 
-        if ($request->has('min_price')) {
-            $query->where('price', '>=', $request->min_price);
+        if (!empty($validated['min_price'])) {
+            $query->where('price', '>=', $validated['min_price']);
         }
 
-        if ($request->has('max_price')) {
-            $query->where('price', '<=', $request->max_price);
+        if (!empty($validated['max_price'])) {
+            $query->where('price', '<=', $validated['max_price']);
         }
 
         return $query->paginate(15);
@@ -51,12 +58,14 @@ class ProductController extends Controller
     }
 
     public function show(Product $product)
-{
-    return $product->load('category', 'vendor', 'images', 'variants', 'reviews.user');
-}
+    {
+        return $product->load('category', 'vendor', 'images', 'variants', 'reviews.user');
+    }
 
     public function update(Request $request, Product $product)
     {
+        $this->authorize('update', $product);
+
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'slug' => 'sometimes|required|string|unique:products,slug,' . $product->id,
@@ -74,8 +83,10 @@ class ProductController extends Controller
         return response()->json($product);
     }
 
-    public function destroy(Product $product)
+    public function destroy(Request $request, Product $product)
     {
+        $this->authorize('delete', $product);
+
         $product->delete();
 
         return response()->json(['message' => 'Produit supprimé']);

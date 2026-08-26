@@ -11,8 +11,10 @@ class ProductImageController extends Controller
 {
     public function store(Request $request, Product $product)
     {
+        $this->authorize('update', $product);
+
         $validated = $request->validate([
-            'image' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120', // 5 Mo max
+            'image' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
             'order' => 'nullable|integer',
         ]);
 
@@ -27,9 +29,10 @@ class ProductImageController extends Controller
         return response()->json($image, 201);
     }
 
-    public function destroy(ProductImage $productImage)
+    public function destroy(Request $request, ProductImage $productImage)
     {
-        // Récupère le chemin relatif à partir de l'URL stockée
+        $this->authorize('update', $productImage->product);
+
         $path = str_replace(asset('storage/'), '', $productImage->url);
         Storage::disk('public')->delete($path);
 

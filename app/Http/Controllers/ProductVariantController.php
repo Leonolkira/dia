@@ -10,6 +10,8 @@ class ProductVariantController extends Controller
 {
     public function store(Request $request, Product $product)
     {
+        $this->authorize('update', $product);
+
         $validated = $request->validate([
             'attribute' => 'required|string|max:255',
             'value' => 'required|string|max:255',
@@ -27,6 +29,8 @@ class ProductVariantController extends Controller
 
     public function update(Request $request, ProductVariant $productVariant)
     {
+        $this->authorize('update', $productVariant->product);
+
         $validated = $request->validate([
             'attribute' => 'sometimes|required|string|max:255',
             'value' => 'sometimes|required|string|max:255',
@@ -40,8 +44,10 @@ class ProductVariantController extends Controller
         return response()->json($productVariant);
     }
 
-    public function destroy(ProductVariant $productVariant)
+    public function destroy(Request $request, ProductVariant $productVariant)
     {
+        $this->authorize('update', $productVariant->product);
+
         $productVariant->delete();
 
         return response()->json(['message' => 'Variante supprimée']);

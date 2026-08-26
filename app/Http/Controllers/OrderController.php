@@ -79,48 +79,75 @@ class OrderController extends Controller
 
         $total = round($subtotal - $discount, 2);
 
-        $order = DB::transaction(function () use ($request, $validated, $cart, $vendorIds, $coupon, $discount, $total) {
-            $order = Order::create([
-                'user_id' => $request->user()->id,
-                'vendor_id' => $vendorIds->first(),
-                'coupon_id' => $coupon?->id,
-                'status' => 'en_attente',
-                'payment_method' => $validated['payment_method'],
-                'payment_status' => 'non_paye',
-                'total' => $total,
-                'discount' => $discount,
-                'shipping_address' => $validated['shipping_address'],
-                'shipping_city' => $validated['shipping_city'],
-                'shipping_phone' => $validated['shipping_phone'],
-                'notes' => $validated['notes'] ?? null,
-            ]);
+        try {
+            $order = DB::transaction(function () use ($request, $validated, $cart, $vendorIds, $coupon, $discount, $total) {
 
-            foreach ($cart->items as $item) {
-                $unitPrice = $item->product->price + ($item->variant->price_adjustment ?? 0);
-
-                $order->items()->create([
-                    'product_id' => $item->product_id,
-                    'product_variant_id' => $item->product_variant_id,
-                    'product_name' => $item->product->name,
-                    'unit_price' => $unitPrice,
-                    'quantity' => $item->quantity,
+                $order = Order::create([
+                    'user_id' => $request->user()->id,
+                    'vendor_id' => $vendorIds->first(),
+                    'coupon_id' => $coupon?->id,
+                    'status' => 'en_attente',
+                    'payment_method' => $validated['payment_method'],
+                    'payment_status' => 'non_paye',
+                    'total' => $total,
+                    'discount' => $discount,
+                    'shipping_address' => $validated['shipping_address'],
+                    'shipping_city' => $validated['shipping_city'],
+                    'shipping_phone' => $validated['shipping_phone'],
+                    'notes' => $validated['notes'] ?? null,
                 ]);
 
-                if ($item->variant) {
-                    $item->variant->decrement('stock', $item->quantity);
-                } else {
-                    $item->product->decrement('stock', $item->quantity);
+                foreach ($cart->items as $item) {
+
+                    if (!$item->product->is_active) {
+                        throw new \Exception("Le produit \"{$item->product->name}\" n'est plus disponible.");
+                    }
+                    // Verrouille la ligne produit (ou variante) le temps de la transaction
+                    if ($item->product_variant_id) {
+                        $variant = \App\Models\ProductVariant::where('id', $item->product_variant_id)
+                            ->lockForUpdate()
+                            ->first();
+
+                        if (!$variant || $variant->stock < $item->quantity) {
+                            throw new \Exception("Stock insuffisant pour la variante \"{$variant?->value}\" du produit \"{$item->product->name}\".");
+                        }
+
+                        $unitPrice = $item->product->price + $variant->price_adjustment;
+                        $variant->decrement('stock', $item->quantity);
+                    } else {
+                        $product = \App\Models\Product::where('id', $item->product_id)
+                            ->lockForUpdate()
+                            ->first();
+
+                        if (!$product || $product->stock < $item->quantity) {
+                            throw new \Exception("Stock insuffisant pour le produit \"{$item->product->name}\".");
+                        }
+
+                        $unitPrice = $product->price;
+                        $product->decrement('stock', $item->quantity);
+                    }
+
+                    $order->items()->create([
+                        'product_id' => $item->product_id,
+                        'product_variant_id' => $item->product_variant_id,
+                        'product_name' => $item->product->name,
+                        'unit_price' => $unitPrice,
+                        'quantity' => $item->quantity,
+                    ]);
                 }
-            }
 
-            if ($coupon) {
-                $coupon->increment('used_count');
-            }
+                if ($coupon) {
+                    $coupon->increment('used_count');
+                }
 
-            $cart->items()->delete();
+                $cart->items()->delete();
 
-            return $order;
-        });
+                return $order;
+            });
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
 
         $order->load('items', 'vendor', 'coupon');
 
@@ -153,7 +180,6 @@ class OrderController extends Controller
 
     public function updateStatus(Request $request, Order $order)
     {
-        // Seul le vendeur concerné ou un admin peut changer le statut
         if ($order->vendor_id !== $request->user()->id && !$request->user()->hasRole('admin')) {
             return response()->json(['message' => 'Non autorisé'], 403);
         }
@@ -161,6 +187,13 @@ class OrderController extends Controller
         $validated = $request->validate([
             'status' => 'required|in:en_attente,confirmee,expediee,livree,annulee',
         ]);
+
+        // Empêche de modifier une commande déjà livrée ou annulée (sauf admin)
+        if (in_array($order->status, ['livree', 'annulee']) && !$request->user()->hasRole('admin')) {
+            return response()->json([
+                'message' => 'Cette commande est déjà finalisée et ne peut plus être modifiée.',
+            ], 422);
+        }
 
         $order->update($validated);
 
