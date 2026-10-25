@@ -18,14 +18,16 @@ class OrderController extends Controller
     }
 
     public function show(Request $request, Order $order)
-    {
-        // Un client ne peut voir que ses propres commandes (sauf admin)
-        if ($order->user_id !== $request->user()->id && !$request->user()->hasRole('admin')) {
-            return response()->json(['message' => 'Non autorisé'], 403);
-        }
-
-        return $order->load('items.product', 'items.variant', 'vendor');
+{
+    if ($order->user_id !== $request->user()->id && !$request->user()->hasRole('admin')) {
+        return response()->json(['message' => 'Non autorisé'], 403);
     }
+
+    return $order->load([
+        'items.product', 'items.variant', 'vendor',
+        'user' => fn ($q) => $q->withTrashed()->select('id', 'name'),
+    ]);
+}
 
     public function store(Request $request)
     {
@@ -178,25 +180,73 @@ class OrderController extends Controller
         return "https://wa.me/{$phone}?text={$message}";
     }
 
-    public function updateStatus(Request $request, Order $order)
-    {
-        if ($order->vendor_id !== $request->user()->id && !$request->user()->hasRole('admin')) {
-            return response()->json(['message' => 'Non autorisé'], 403);
-        }
+   public function updateStatus(Request $request, Order $order)
+{
+    $user = $request->user();
 
-        $validated = $request->validate([
-            'status' => 'required|in:en_attente,confirmee,expediee,livree,annulee',
-        ]);
-
-        // Empêche de modifier une commande déjà livrée ou annulée (sauf admin)
-        if (in_array($order->status, ['livree', 'annulee']) && !$request->user()->hasRole('admin')) {
-            return response()->json([
-                'message' => 'Cette commande est déjà finalisée et ne peut plus être modifiée.',
-            ], 422);
-        }
-
-        $order->update($validated);
-
-        return response()->json($order);
+    if ($order->vendor_id !== $user->id && !$user->hasRole('admin')) {
+        return response()->json(['message' => 'Non autorisé'], 403);
     }
+
+    $validated = $request->validate([
+        'status' => 'sometimes|required|in:en_attente,confirmee,expediee,livree,annulee',
+        'payment_status' => 'sometimes|required|in:non_paye,paye,echoue',
+    ]);
+
+    // Une commande finalisée n'est modifiable que par un admin
+    if (in_array($order->status, ['livree', 'annulee']) && !$user->hasRole('admin')) {
+        return response()->json([
+            'message' => 'Cette commande est déjà finalisée et ne peut plus être modifiée.',
+        ], 422);
+    }
+
+    try {
+        DB::transaction(function () use ($order, $validated) {
+            // Verrou : évite qu'une double requête restitue deux fois le stock
+            $order = Order::whereKey($order->id)->lockForUpdate()->first();
+
+            $newStatus = $validated['status'] ?? $order->status;
+
+            // Annulation : on remet le stock, une seule fois
+            if ($newStatus === 'annulee' && $order->status !== 'annulee') {
+                foreach ($order->items as $item) {
+                    if ($item->product_variant_id) {
+                        \App\Models\ProductVariant::where('id', $item->product_variant_id)
+                            ->increment('stock', $item->quantity);
+                    } else {
+                        \App\Models\Product::where('id', $item->product_id)
+                            ->increment('stock', $item->quantity);
+                    }
+                }
+
+                // Le coupon redevient utilisable
+                if ($order->coupon_id) {
+                    \App\Models\Coupon::where('id', $order->coupon_id)
+                        ->where('used_count', '>', 0)
+                        ->decrement('used_count');
+                }
+            }
+
+            // Réactivation d'une commande annulée : on reprend le stock
+            if ($order->status === 'annulee' && $newStatus !== 'annulee') {
+                foreach ($order->items as $item) {
+                    $model = $item->product_variant_id
+                        ? \App\Models\ProductVariant::lockForUpdate()->find($item->product_variant_id)
+                        : \App\Models\Product::lockForUpdate()->find($item->product_id);
+
+                    if (!$model || $model->stock < $item->quantity) {
+                        throw new \Exception("Stock insuffisant pour réactiver la commande ({$item->product_name}).");
+                    }
+                    $model->decrement('stock', $item->quantity);
+                }
+            }
+
+            $order->update($validated);
+        });
+    } catch (\Exception $e) {
+        return response()->json(['message' => $e->getMessage()], 422);
+    }
+
+    return response()->json($order->fresh());
+}
 }

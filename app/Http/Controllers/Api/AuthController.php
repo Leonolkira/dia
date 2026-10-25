@@ -40,9 +40,19 @@ class AuthController extends Controller
     ], 201);
 }
 
-public function verifyEmail(EmailVerificationRequest $request)
+public function verifyEmail(Request $request, $id, $hash)
 {
-    $request->fulfill();
+    $user = User::findOrFail($id);
+
+    if (! hash_equals((string) $hash, sha1($user->getEmailForVerification()))) {
+        return response()->json(['message' => 'Lien de vérification invalide.'], 403);
+    }
+
+    if ($user->hasVerifiedEmail()) {
+        return response()->json(['message' => 'Cet email est déjà vérifié.']);
+    }
+
+    $user->markEmailAsVerified();
 
     return response()->json(['message' => 'Email vérifié avec succès.']);
 }
@@ -73,6 +83,7 @@ public function resendVerificationEmail(Request $request)
             ]);
         }
 
+        $user->load('roles');
         $token = $user->createToken('api-token')->plainTextToken;
 
         return response()->json([
@@ -94,6 +105,51 @@ public function resendVerificationEmail(Request $request)
 
         return response()->json(['message' => 'Déconnecté de tous les appareils']);
     }
+
+    public function updateProfile(Request $request)
+{
+    $user = $request->user();
+
+    $validated = $request->validate([
+        'name' => 'sometimes|required|string|max:255',
+        'phone' => 'nullable|string|max:20',
+        'email' => 'sometimes|required|email|max:255|unique:users,email,' . $user->id,
+    ]);
+
+    // Si l'email change, on doit re-demander une vérification
+    if (isset($validated['email']) && $validated['email'] !== $user->email) {
+        $user->email_verified_at = null;
+    }
+
+    $user->update($validated);
+
+    if (isset($validated['email']) && $user->wasChanged('email')) {
+        $user->sendEmailVerificationNotification();
+    }
+
+    return response()->json($user);
+}
+
+    public function changePassword(Request $request)
+{
+    $validated = $request->validate([
+        'current_password' => 'required|string',
+        'password' => 'required|string|min:8|confirmed',
+    ]);
+
+    $user = $request->user();
+
+    if (! Hash::check($validated['current_password'], $user->password)) {
+        return response()->json(['message' => 'Le mot de passe actuel est incorrect.'], 422);
+    }
+
+    $user->update(['password' => Hash::make($validated['password'])]);
+
+    // Révoque tous les tokens sauf celui utilisé pour cette requête (garde l'utilisateur connecté sur l'appareil actuel)
+    $user->tokens()->where('id', '!=', $request->user()->currentAccessToken()->id)->delete();
+
+    return response()->json(['message' => 'Mot de passe modifié avec succès.']);
+}
 
     public function me(Request $request)
     {
@@ -141,5 +197,23 @@ public function resetPassword(Request $request)
     }
 
     return response()->json(['message' => 'Ce lien de réinitialisation est invalide ou expiré.'], 422);
+}
+
+public function deleteAccount(Request $request)
+{
+    $validated = $request->validate([
+        'password' => 'required|string',
+    ]);
+
+    $user = $request->user();
+
+    if (! Hash::check($validated['password'], $user->password)) {
+        return response()->json(['message' => 'Mot de passe incorrect.'], 422);
+    }
+
+    $user->tokens()->delete(); // révoque tous les accès immédiatement
+    $user->delete(); // soft delete grâce au trait
+
+    return response()->json(['message' => 'Compte supprimé avec succès.']);
 }
 }

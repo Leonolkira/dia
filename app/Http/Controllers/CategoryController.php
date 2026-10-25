@@ -8,9 +8,12 @@ use Illuminate\Http\Request;
 class CategoryController extends Controller
 {
     public function index()
-    {
-        return Category::with('children')->whereNull('parent_id')->get();
-    }
+{
+    return Category::withCount('products')
+        ->with(['children' => fn ($q) => $q->withCount('products')])
+        ->whereNull('parent_id')
+        ->get();
+}
 
     public function store(Request $request)
     {
@@ -46,9 +49,16 @@ class CategoryController extends Controller
     }
 
     public function destroy(Category $category)
-    {
-        $category->delete();
-
-        return response()->json(['message' => 'Catégorie supprimée']);
+{
+    if ($category->products()->exists()) {
+        return response()->json(['message' => 'Impossible de supprimer : cette catégorie contient encore des produits.'], 422);
     }
+    if ($category->children()->exists()) {
+        return response()->json(['message' => 'Impossible de supprimer : cette catégorie contient des sous-catégories.'], 422);
+    }
+
+    $category->delete();
+
+    return response()->json(['message' => 'Catégorie supprimée']);
+}
 }

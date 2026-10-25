@@ -23,4 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn(Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+        $exceptions->render(function (\Illuminate\Auth\Access\AuthorizationException $e, $request) {
+        if ($request->is('api/*')) {
+            return response()->json(['message' => 'Veuillez vérifier votre adresse email avant de continuer.'], 403);
+        }
+    });
     })->create();

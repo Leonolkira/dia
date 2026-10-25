@@ -24,14 +24,17 @@ Route::middleware('throttle:5,1')->group(function () {
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
     Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
-    ->middleware(['signed'])
-    ->name('verification.verify');
+        ->middleware(['signed'])
+        ->name('verification.verify');
 });
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
     Route::post('/email/resend', [AuthController::class, 'resendVerificationEmail']);
+    Route::put('/profile', [AuthController::class, 'updateProfile']);
+    Route::put('/profile/password', [AuthController::class, 'changePassword']);
+    Route::delete('/profile', [AuthController::class, 'deleteAccount']);
     Route::get('/me', [AuthController::class, 'me']);
 });
 
@@ -57,7 +60,8 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{product}', [ProductController::class, 'show']);
 
-Route::middleware(['auth:sanctum', 'role:admin|vendeur'])->group(function () {
+// Écriture sur les produits : nécessite un compte vérifié (email confirmé)
+Route::middleware(['auth:sanctum', 'verified', 'role:admin|vendeur'])->group(function () {
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{product}', [ProductController::class, 'update']);
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
@@ -93,8 +97,12 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
-    Route::post('/orders', [OrderController::class, 'store']);
     Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+});
+
+// Créer une commande : nécessite un compte vérifié (email confirmé)
+Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+    Route::post('/orders', [OrderController::class, 'store']);
 });
 
 /*
@@ -130,7 +138,6 @@ Route::middleware('throttle:10,1')->group(function () {
     Route::post('/coupons/check', [CouponController::class, 'check']);
 });
 
-
 Route::middleware(['throttle:10,1', 'auth:sanctum', 'role:admin'])->group(function () {
     Route::get('/coupons', [CouponController::class, 'index']);
     Route::post('/coupons', [CouponController::class, 'store']);
@@ -147,4 +154,5 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
     Route::get('/admin/stats', [AdminDashboardController::class, 'stats']);
     Route::get('/admin/orders', [AdminDashboardController::class, 'orders']);
     Route::get('/admin/users', [AdminDashboardController::class, 'users']);
+    Route::get('/admin/users/{user}', [AdminDashboardController::class, 'showUser']);
 });
