@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\AddressController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\CouponController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
@@ -11,6 +13,12 @@ use App\Http\Controllers\ProductVariantController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\WishlistController;
 use App\Http\Controllers\AdminDashboardController;
+use App\Http\Controllers\ShopSettingsController;
+use App\Http\Controllers\AdminConversationController;
+use App\Http\Controllers\AdminCustomRequestController;
+use App\Http\Controllers\CustomRequestController;
+use App\Http\Controllers\MessageController;
+use App\Http\Controllers\NotificationController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -23,10 +31,15 @@ Route::middleware('throttle:5,1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
-    Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
-        ->middleware(['signed'])
-        ->name('verification.verify');
 });
+
+// Vérification d'e-mail : limite plus large (le front peut rappeler la route)
+Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
+    ->middleware(['signed', 'throttle:20,1'])
+    ->name('verification.verify');
+
+Route::post('/products/{product}/reviews', [ReviewController::class, 'store'])->middleware('throttle:10,1');
+Route::get('/shop-settings', ShopSettingsController::class);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -68,6 +81,7 @@ Route::middleware(['auth:sanctum', 'verified', 'role:admin|vendeur'])->group(fun
 
     // Images produits
     Route::post('/products/{product}/images', [ProductImageController::class, 'store']);
+    Route::put('/product-images/{productImage}', [ProductImageController::class, 'update']);
     Route::delete('/product-images/{productImage}', [ProductImageController::class, 'destroy']);
 
     // Variantes produits
@@ -91,18 +105,25 @@ Route::middleware('auth:sanctum')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| Commandes
+| Commandes, checkout et adresses
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/counts', [OrderController::class, 'counts']); // avant /orders/{order}
     Route::get('/orders/{order}', [OrderController::class, 'show']);
     Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+
+    Route::post('/checkout/quote', [CheckoutController::class, 'quote'])->middleware('throttle:30,1');
+
+    Route::get('/addresses', [AddressController::class, 'index']);
+    Route::post('/addresses', [AddressController::class, 'store']);
+    Route::delete('/addresses/{id}', [AddressController::class, 'destroy']);
 });
 
 // Créer une commande : nécessite un compte vérifié (email confirmé)
-Route::middleware(['auth:sanctum', 'verified'])->group(function () {
-    Route::post('/orders', [OrderController::class, 'store']);
+Route::middleware(['auth:sanctum', 'verified', 'throttle:10,1'])->group(function () {
+    Route::post('/orders', [CheckoutController::class, 'store']);
 });
 
 /*
@@ -125,6 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
 */
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wishlist', [WishlistController::class, 'index']);
+    Route::get('/wishlist/ids', [WishlistController::class, 'ids']); // avant /wishlist/{productId}
     Route::post('/wishlist', [WishlistController::class, 'store']);
     Route::delete('/wishlist/{productId}', [WishlistController::class, 'destroy']);
 });
@@ -153,6 +175,39 @@ Route::middleware(['throttle:10,1', 'auth:sanctum', 'role:admin'])->group(functi
 Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
     Route::get('/admin/stats', [AdminDashboardController::class, 'stats']);
     Route::get('/admin/orders', [AdminDashboardController::class, 'orders']);
+    Route::get('/admin/products', [AdminDashboardController::class, 'products']);
     Route::get('/admin/users', [AdminDashboardController::class, 'users']);
+    Route::get('/admin/reviews', [AdminDashboardController::class, 'reviews']); 
     Route::get('/admin/users/{user}', [AdminDashboardController::class, 'showUser']);
+    Route::get('/admin/custom-requests', [AdminCustomRequestController::class, 'index']);
+    Route::get('/admin/custom-requests/{customRequest}', [AdminCustomRequestController::class, 'show']);
+    Route::put('/admin/custom-requests/{customRequest}/quote', [AdminCustomRequestController::class, 'quote']);
+    Route::put('/admin/custom-requests/{customRequest}/reject', [AdminCustomRequestController::class, 'reject']);
+    Route::get('/admin/conversations', [AdminConversationController::class, 'index']);
+    Route::get('/admin/conversations/{userId}', [AdminConversationController::class, 'show']);
+    Route::post('/admin/conversations/{userId}/messages', [AdminConversationController::class, 'reply'])->middleware('throttle:60,1');
+});
+
+// Demandes sur mesure (client)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/custom-requests', [CustomRequestController::class, 'index']);
+    Route::get('/custom-requests/{customRequest}', [CustomRequestController::class, 'show']);
+    Route::post('/custom-requests/{customRequest}/preview', [CustomRequestController::class, 'preview'])->middleware('throttle:30,1');
+    Route::post('/custom-requests/{customRequest}/cancel', [CustomRequestController::class, 'cancel']);
+});
+
+Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+    Route::post('/custom-requests', [CustomRequestController::class, 'store'])->middleware('throttle:5,1');
+    Route::post('/custom-requests/{customRequest}/accept', [CustomRequestController::class, 'accept'])->middleware('throttle:10,1');
+});
+
+// Notifications et messages (client et admin)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/summary', [NotificationController::class, 'summary'])->middleware('throttle:120,1');
+    Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'read']);
+
+    Route::get('/messages', [MessageController::class, 'index']);
+    Route::post('/messages', [MessageController::class, 'store'])->middleware('throttle:20,1');
 });

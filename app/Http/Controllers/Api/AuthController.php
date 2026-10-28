@@ -160,16 +160,12 @@ public function resendVerificationEmail(Request $request)
 {
     $request->validate(['email' => 'required|email']);
 
-    $status = Password::sendResetLink(
-        $request->only('email')
-    );
+    Password::sendResetLink($request->only('email'));
 
-    if ($status === Password::RESET_LINK_SENT) {
-        return response()->json(['message' => 'Un lien de réinitialisation a été envoyé par email.']);
-    }
-
-    // Message volontairement vague pour ne pas révéler si l'email existe ou non (sécurité)
-    return response()->json(['message' => 'Si cet email existe, un lien de réinitialisation a été envoyé.']);
+    // Même réponse dans tous les cas : on ne révèle pas si l'adresse existe
+    return response()->json([
+        'message' => "Si un compte existe pour cette adresse, un lien de réinitialisation vient d'être envoyé.",
+    ]);
 }
 
 public function resetPassword(Request $request)

@@ -31,7 +31,7 @@ class CategoryController extends Controller
 
     public function show(Category $category)
     {
-        return $category->load('children', 'products');
+        return $category->load(['children', 'products' => fn ($q) => $q->where('is_active', true)]);
     }
 
     public function update(Request $request, Category $category)

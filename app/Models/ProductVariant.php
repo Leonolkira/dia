@@ -6,10 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class ProductVariant extends Model
 {
-    protected $fillable = ['product_id', 'attribute', 'value', 'price_adjustment', 'stock', 'sku'];
+    protected $fillable = ['product_id', 'color', 'size', 'price_adjustment', 'stock', 'sku'];
 
-    public function product()
-    {
-        return $this->belongsTo(Product::class);
-    }
+// "Bleu / 40", "Rouge", "M"...
+public function getLabelAttribute(): string
+{
+    return collect([$this->color, $this->size])->filter()->implode(' / ');
+}
 }

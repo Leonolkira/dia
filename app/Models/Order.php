@@ -7,19 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 class Order extends Model
 {
     protected $fillable = [
-        'user_id',
-        'vendor_id',
-        'coupon_id',
-        'status',
-        'payment_method',
-        'payment_status',
-        'total',
-        'discount',
-        'shipping_address',
-        'shipping_city',
-        'shipping_phone',
-        'notes',
-    ];
+    'user_id', 'vendor_id', 'coupon_id', 'status', 'payment_method', 'payment_status',
+    'delivery_mode', 'shipping_name', 'total', 'discount', 'shipping_fee', 'deposit_amount',
+    'shipping_address', 'shipping_city', 'shipping_phone', 'notes',
+];
 
     public function user()
     {

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Http\Resources\Json\JsonResource;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -29,9 +30,12 @@ class AppServiceProvider extends ServiceProvider
         Schema::defaultStringLength(191);
         
         Gate::policy(Product::class, ProductPolicy::class);
+        JsonResource::withoutWrapping();
 
         ResetPassword::createUrlUsing(function ($user, string $token) {
         return env('FRONTEND_URL', 'http://localhost:3000') . '/reset-password?token=' . $token . '&email=' . urlencode($user->email);
+
+        
     });
 
     VerifyEmail::createUrlUsing(function ($notifiable) {

@@ -19,6 +19,12 @@ class Product extends Model
         'is_active',
     ];
 
+    protected $casts = [
+    'details' => 'array',
+    'on_order' => 'boolean',
+    'is_active' => 'boolean',
+];
+
     public function category()
     {
         return $this->belongsTo(Category::class);
@@ -49,4 +55,17 @@ class Product extends Model
     {
         return $this->reviews()->avg('rating');
     }
+
+    public function getHasVariantsAttribute(): bool
+{
+    return $this->variants->isNotEmpty();
+}
+
+// Règle de stock : avec variantes, le stock réel est la somme des variantes
+public function getAvailableStockAttribute(): int
+{
+    return $this->has_variants
+        ? (int) $this->variants->sum('stock')
+        : (int) $this->stock;
+}
 }
